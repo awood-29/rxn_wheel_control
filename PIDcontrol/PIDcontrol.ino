@@ -1,5 +1,8 @@
 #include <Adafruit_BNO055.h>
+#include <Adafruit_Sensor.h>
+#include <utility/imumaths.h>
 #include "PIDcontrol.hpp"
+#include <Wire.h>
 
 namespace Settings
 {
@@ -18,10 +21,12 @@ namespace Settings
     const double unsafeAngle = 360;
 
     // The angle at which the cube should begin balancing at.
-    const double breakAngle = 15;
+    const double breakAngle = 20;
 
     // The sampling time of the PID controller in ms.
-    const int PIDSampleTime = 15;
+    const int PIDSampleTime = 1;//15;
+
+    const int tol = 1;
 };
 
 struct State
@@ -32,7 +37,7 @@ struct State
     // The reference angle for the state.
     double referenceAngle;
 
-    State() : currentAngle(0), referenceAngle(0) {};
+    State() : currentAngle(0), referenceAngle(0){};
  };
 
 // Controller
@@ -47,21 +52,23 @@ struct State
 
 double Ku = 36;
 double Tu = 0.357;
-PID controller(0.6 * Ku, 0.6 * Tu, 0.83 * Tu, Settings::PIDSampleTime);
+// Kp, Ki, Kd
+//PID controller(25 * Ku, 0.1 * Tu, 0.1 * Tu, Settings::PIDSampleTime);
+//PID controller(25 * Ku, 0.1 * Tu, 5 * Tu, Settings::PIDSampleTime);
+//PID controller(25 * Ku, 30.1 * Tu, 0.01 * Tu, Settings::PIDSampleTime);
+PID controller(5 * Ku, 20.1 * Tu, 12.01 * Tu, Settings::PIDSampleTime);
 
 // The state of the system.
 State state;
 
 Adafruit_BNO055 bno;
 
-//Servo dc;
-
 // pins
 int enA = 9;
 int in1 = 8;
 int in2 = 7;
 
-void setup()
+void setup(void)
 {
   Serial.begin(9600);
   delay(100);
@@ -75,72 +82,38 @@ void setup()
    // turn off to start
   digitalWrite(in1, LOW);
   digitalWrite(in2, LOW);
+  
+  /* Initialise the sensor */
+  if(!bno.begin())
+  {
+    Serial.print("Ooops, no BNO055 detected ... Check your wiring or I2C ADDR!");
+    while(1);
+  }
+  
+  delay(1000);
+  bno.setExtCrystalUse(true);
+  delay(1000);
 
-   //dc.attach(11);
-   //delay(1000);
-   //dc.writeMicroseconds(Settings::dcBreakSignal);
-
-   // Setup BNOs.
-   //if(!bno.begin(Adafruit_BNO055::OPERATION_MODE_IMUPLUS))
-   //{
-   //    printErrorAndExit("Could not connect to imu.");
-   //}
-
-  //bno.setExtCrystalUse(true);
-
-  //while (!isAccelerationCalibrated(bno))
-  //{
-  //  delay(200);
-  //  Serial.print("Waiting for accleration calibration");
-  //  delay(500);
-  //}
-
-   Serial.println("imu is calibrated");
-   delay(1000);
-
-
-   state.currentAngle = getAngleFromIMU(bno);
-   Serial.println("System has initial angle: " + String(state.currentAngle));
-
-  delay(500);
-  digitalWrite(in1,HIGH);
-  delay(200);
-  analogWrite(enA,255);
-  delay(6000);
-  analogWrite(enA,0);
-  digitalWrite(in1,LOW);
-  delay(500);
-  Serial.print("done test");
-  delay(5000);
-
-   Serial.println(0);
-   Serial.println(Settings::breakAngle);
-   Serial.println(-Settings::breakAngle);
+  /* Get a new sensor event */ 
+  //sensors_event_t event; 
+  //state.currentAngle = bno.getEvent(&event);
+  //Serial.println("System has initial angle: " + String(state.currentAngle)); 
 }
 
 
 void loop()
 {
     state.currentAngle = getAngleFromIMU(bno);
-
+    state.currentAngle = state.currentAngle +48; // offset
+    Serial.print(String(state.referenceAngle) + "-" + String(state.currentAngle) + "\n");    
     if (isnan(state.currentAngle) || fabs(state.currentAngle) >= Settings::unsafeAngle)
     {
         // Some invalid reading was found, just exit.
-        //controller.reset();
         printErrorAndExit("Unsafe. Angle is past " + String(Settings::unsafeAngle) + 
                           " degrees. Current angle: "+ String(state.currentAngle));
     }
     else if (fabs(state.currentAngle) >= Settings::breakAngle)
     {
-        // Send the break signal and do nothing.
-        /*
-        Serial.print(state.currentAngle);
-        Serial.print(" ");
-        Serial.print(0);
-        Serial.print('\n');
-        */
-        //dc.writeMicroseconds(Settings::dcBreakSignal);
-        //controller.reset();
         delay(500);
         printErrorAndExit("Break. Angle is past " + String(Settings::unsafeAngle) + 
                           " degrees. Current angle: "+ String(state.currentAngle));
@@ -149,15 +122,53 @@ void loop()
     {
         double roundedAngle = (float)((int)(state.currentAngle * 10))/10.0;
         double dcDiff = controller.compute(state.currentAngle, state.referenceAngle);
-
+        dcDiff = dcDiff;
+      /*
         if (abs(dcDiff) > Settings::dcUpperBound)
         {
             dcDiff = dcDiff > 0 ? Settings::dcUpperBound : -Settings::dcUpperBound;
         }
+      */
+      if (dcDiff < Settings::breakAngle - Settings::tol /2) // real close
+      {
+        //Serial.print("\n negative angle");
+        digitalWrite(in1,LOW);
+        digitalWrite(in2,HIGH);
+        analogWrite(enA,dcDiff);
+      }
 
-        long dcVal = Settings::dcBreakSignal + Settings::dcUpperBound + dcDiff + Settings::dcLowerBound;
-        analogWrite(enA,dcVal);
-        Serial.print("dcVal is: " + String(dcVal));
+      else if (dcDiff < Settings::breakAngle - Settings::tol) // further
+      {
+        //Serial.print("\n negative angle");
+        digitalWrite(in1,LOW);
+        digitalWrite(in2,HIGH);
+        analogWrite(enA,dcDiff);
+      }
+      else if (dcDiff > Settings::breakAngle + Settings::tol/2)
+      {
+        //Serial.print("\n positive angle");
+        digitalWrite(in1,HIGH);
+        digitalWrite(in2,LOW);
+        analogWrite(enA,dcDiff);
+      }
+      else if (dcDiff > Settings::breakAngle + Settings::tol)
+      {
+        //Serial.print("\n positive angle");
+        digitalWrite(in1,HIGH);
+        digitalWrite(in2,LOW);
+        analogWrite(enA,dcDiff);
+      }
+      else
+      {
+        //Serial.print("\n close enough");
+      }
+
+        /*
+        long dcVal = Settings::dcUpperBound + dcDiff; // angle value
+        analogWrite(in1,HIGH);
+        delay(50);
+        analogWrite(enA,abs(dcDiff));
+        Serial.print("dcVal is: " + String(dcDiff));
         delay(50);
         //dc.writeMicroseconds(dcVal);
 
@@ -168,6 +179,7 @@ void loop()
                          Settings::dcUpperBound,
                          -Settings::breakAngle, Settings::breakAngle));
         Serial.print('\n');
+        */
     }
     delay(Settings::PIDSampleTime);
 }
@@ -179,7 +191,7 @@ double getAngleFromIMU(Adafruit_BNO055& bno)
     double my = acceleration.y();
     double theta = atan2(mx, my) * 180/PI;
 
-    return theta + 3;
+    return theta-1.14;
 }
 
 bool isAccelerationCalibrated(Adafruit_BNO055& bno)
