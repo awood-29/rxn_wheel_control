@@ -41,14 +41,6 @@ struct State
  };
 
 // Controller
-// 8 2 0.1
-// 21, 0.18,  0.27
-// 28, 0.18,  0.045
-// 21, 0.18,  0.045
-// 28, 0,  0.045
-
-// Best ranked
-// 0.6 * Ku, 0.5 * Tu, 0.75 * Tu
 
 double Ku = 36;
 double Tu = 0.357;
@@ -94,10 +86,6 @@ void setup(void)
   bno.setExtCrystalUse(true);
   delay(1000);
 
-  /* Get a new sensor event */ 
-  //sensors_event_t event; 
-  //state.currentAngle = bno.getEvent(&event);
-  //Serial.println("System has initial angle: " + String(state.currentAngle)); 
 }
 
 
@@ -123,13 +111,8 @@ void loop()
         double roundedAngle = (float)((int)(state.currentAngle * 10))/10.0;
         double dcDiff = controller.compute(state.currentAngle, state.referenceAngle);
         dcDiff = dcDiff;
-      /*
-        if (abs(dcDiff) > Settings::dcUpperBound)
-        {
-            dcDiff = dcDiff > 0 ? Settings::dcUpperBound : -Settings::dcUpperBound;
-        }
-      */
-      if (dcDiff < Settings::breakAngle - Settings::tol /2) // real close
+      
+    if (dcDiff < Settings::breakAngle - Settings::tol /2) // real close
       {
         //Serial.print("\n negative angle");
         digitalWrite(in1,LOW);
@@ -162,25 +145,7 @@ void loop()
       {
         //Serial.print("\n close enough");
       }
-
-        /*
-        long dcVal = Settings::dcUpperBound + dcDiff; // angle value
-        analogWrite(in1,HIGH);
-        delay(50);
-        analogWrite(enA,abs(dcDiff));
-        Serial.print("dcVal is: " + String(dcDiff));
-        delay(50);
-        //dc.writeMicroseconds(dcVal);
-
-        Serial.print(roundedAngle);
-        Serial.print(" ");
-        Serial.print(map(dcDiff, 
-                         -Settings::dcUpperBound,
-                         Settings::dcUpperBound,
-                         -Settings::breakAngle, Settings::breakAngle));
-        Serial.print('\n');
-        */
-    }
+    }   
     delay(Settings::PIDSampleTime);
 }
 
@@ -191,7 +156,7 @@ double getAngleFromIMU(Adafruit_BNO055& bno)
     double my = acceleration.y();
     double theta = atan2(mx, my) * 180/PI;
 
-    return theta-1.14;
+    return theta-1.14; // balance offset
 }
 
 bool isAccelerationCalibrated(Adafruit_BNO055& bno)
